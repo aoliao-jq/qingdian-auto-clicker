@@ -1,0 +1,16 @@
+:root {
+  font-family: Inter, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  color: #202838;
+  background: #f4f6fa;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --primary: #4f6ef7;
+  --primary-soft: #eef1ff;
+  --border: #e7eaf0;
+  --muted: #7b8497;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #app { width: 100%; min-width: 960px; min-height: 100%; margin: 0; }
+body { min-height: 100vh; overflow: auto; background: #f4f6fa; user-select: none; }
+button, input { font: inherit; }
