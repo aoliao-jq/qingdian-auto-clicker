@@ -3,6 +3,21 @@ export type ClickType = 'single' | 'double'
 export type RepeatMode = 'untilStopped' | 'count'
 export type PositionMode = 'current' | 'fixed'
 export type ClickerPhase = 'idle' | 'countdown' | 'running' | 'error'
+export const supportedHotkeys = [
+  'F1',
+  'F2',
+  'F3',
+  'F4',
+  'F5',
+  'F6',
+  'F7',
+  'F8',
+  'F9',
+  'F10',
+  'F11',
+  'F12'
+] as const
+export type ClickerHotkey = (typeof supportedHotkeys)[number]
 
 export interface ScreenPoint {
   x: number
@@ -19,6 +34,8 @@ export interface ClickerSettings {
   position: ScreenPoint
   startDelaySec: number
   hideWindowOnStart: boolean
+  startHotkey: ClickerHotkey
+  stopHotkey: ClickerHotkey
 }
 
 export interface ClickerState {
@@ -49,5 +66,7 @@ export const defaultClickerSettings: ClickerSettings = {
   positionMode: 'current',
   position: { x: 0, y: 0 },
   startDelaySec: 3,
-  hideWindowOnStart: false
+  hideWindowOnStart: false,
+  startHotkey: 'F6',
+  stopHotkey: 'F7'
 }

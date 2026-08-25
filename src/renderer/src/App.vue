@@ -14,6 +14,7 @@ import {
 } from '@element-plus/icons-vue'
 import {
   defaultClickerSettings,
+  supportedHotkeys,
   type ClickerSettings,
   type ClickerState
 } from '../../shared/clicker'
@@ -36,6 +37,7 @@ function loadSettings(): ClickerSettings {
 }
 
 const settings = reactive<ClickerSettings>(loadSettings())
+const hotkeyOptions = supportedHotkeys
 const state = ref<ClickerState>({
   phase: 'idle', clicks: 0, completedCycles: 0, remainingCycles: null,
   countdown: 0, message: '正在连接…', hotkeysReady: false
@@ -262,7 +264,7 @@ onUnmounted(() => {
           </el-button>
         </div>
         <span class="hotkey-state" :class="{ muted: !state.hotkeysReady }">
-          {{ state.hotkeysReady ? 'F6 / F7 快捷键可用' : '全局快捷键不可用' }}
+          {{ state.hotkeysReady ? `${settings.startHotkey} 开始 / ${settings.stopHotkey} 停止` : '全局快捷键不可用' }}
         </span>
         <el-tag :type="statusType" effect="light" round>{{ statusText }}</el-tag>
       </div>
@@ -302,9 +304,18 @@ onUnmounted(() => {
                 </div>
               </div>
             </div>
-            <div class="behavior-setting">
-              <div><strong>启动后隐藏窗口</strong><span>停止、完成或按 F7 后自动恢复窗口</span></div>
-              <el-switch v-model="settings.hideWindowOnStart" />
+            <div class="behavior-grid">
+              <div class="behavior-setting hotkey-setting">
+                <div class="behavior-copy"><strong>全局快捷键</strong><span>可在 F1 至 F12 中分别选择开始键和停止键</span></div>
+                <div class="hotkey-pickers">
+                  <label><span>开始</span><el-select v-model="settings.startHotkey" size="small"><el-option v-for="key in hotkeyOptions" :key="`start-${key}`" :label="key" :value="key" :disabled="key === settings.stopHotkey" /></el-select></label>
+                  <label><span>停止</span><el-select v-model="settings.stopHotkey" size="small"><el-option v-for="key in hotkeyOptions" :key="`stop-${key}`" :label="key" :value="key" :disabled="key === settings.startHotkey" /></el-select></label>
+                </div>
+              </div>
+              <div class="behavior-setting">
+                <div class="behavior-copy"><strong>启动后隐藏窗口</strong><span>停止、完成或按 {{ settings.stopHotkey }} 后自动恢复窗口</span></div>
+                <el-switch v-model="settings.hideWindowOnStart" />
+              </div>
             </div>
           </article>
         </div>
@@ -318,7 +329,7 @@ onUnmounted(() => {
           <h3>{{ state.message }}</h3>
           <p>{{ settings.repeatMode === 'count' ? `剩余 ${state.remainingCycles ?? settings.repeatCount} 次` : '持续运行模式' }}</p>
           <el-button class="main-action" :type="isActive ? 'danger' : 'primary'" size="large" @click="toggleClicker"><el-icon><VideoPause v-if="isActive" /><VideoPlay v-else /></el-icon>{{ isActive ? '停止连点' : '启动连点' }}</el-button>
-          <div class="shortcut-list"><div><kbd>F6</kbd><span>启动 / 停止</span></div><div><kbd>F7</kbd><span>紧急停止</span></div></div>
+          <div class="shortcut-list"><div><kbd>{{ settings.startHotkey }}</kbd><span>开始连点</span></div><div><kbd>{{ settings.stopHotkey }}</kbd><span>停止连点</span></div></div>
         </aside>
       </section>
 
@@ -330,7 +341,7 @@ onUnmounted(() => {
         <div class="test-layout">
           <div class="test-target" :class="{ armed: testArmed }" @mousedown.prevent="recordTestClick">
             <div class="target-ring"><Mouse /></div>
-            <strong>{{ testArmed ? '将鼠标停在这里，按 F6 开始' : '点击“准备测速”开始' }}</strong>
+            <strong>{{ testArmed ? `将鼠标停在这里，按 ${settings.startHotkey} 开始` : '点击“准备测速”开始' }}</strong>
             <span>{{ testArmed ? '正在记录测试区域收到的每一次点击' : '建议使用当前位置、指定次数进行测试' }}</span>
           </div>
           <div class="test-metrics">

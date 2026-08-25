@@ -6,7 +6,9 @@ import { autoUpdater } from 'electron-updater'
 import icon from '../../resources/icon.png?asset'
 import {
   defaultClickerSettings,
+  supportedHotkeys,
   type ClickButton,
+  type ClickerHotkey,
   type ClickerSettings,
   type ClickerState
 } from '../shared/clicker'
@@ -44,6 +46,13 @@ mouse.config.autoDelayMs = 0
 
 function normalizeSettings(input: ClickerSettings): ClickerSettings {
   const allowedButtons: ClickButton[] = ['left', 'middle', 'right']
+  const startHotkey = supportedHotkeys.includes(input.startHotkey as ClickerHotkey)
+    ? input.startHotkey
+    : defaultClickerSettings.startHotkey
+  let stopHotkey = supportedHotkeys.includes(input.stopHotkey as ClickerHotkey)
+    ? input.stopHotkey
+    : defaultClickerSettings.stopHotkey
+  if (stopHotkey === startHotkey) stopHotkey = startHotkey === 'F7' ? 'F8' : 'F7'
   return {
     button: allowedButtons.includes(input.button) ? input.button : 'left',
     clickType: input.clickType === 'double' ? 'double' : 'single',
@@ -56,7 +65,9 @@ function normalizeSettings(input: ClickerSettings): ClickerSettings {
       y: Math.round(Number(input.position?.y) || 0)
     },
     startDelaySec: Math.min(30, Math.max(0, Math.round(Number(input.startDelaySec) || 0))),
-    hideWindowOnStart: Boolean(input.hideWindowOnStart)
+    hideWindowOnStart: Boolean(input.hideWindowOnStart),
+    startHotkey,
+    stopHotkey
   }
 }
 
@@ -318,7 +329,15 @@ function registerClickerIpc(): void {
   ipcMain.handle('clicker:stop', () => stopClicker())
   ipcMain.handle('clicker:get-state', () => ({ ...state }))
   ipcMain.handle('clicker:update-settings', (_event, settings: ClickerSettings) => {
+    const previousStartHotkey = currentSettings.startHotkey
+    const previousStopHotkey = currentSettings.stopHotkey
     currentSettings = normalizeSettings(settings)
+    if (
+      previousStartHotkey !== currentSettings.startHotkey ||
+      previousStopHotkey !== currentSettings.stopHotkey
+    ) {
+      registerHotkeys()
+    }
     return currentSettings
   })
   ipcMain.handle('clicker:get-cursor-position', async () => {
@@ -328,19 +347,29 @@ function registerClickerIpc(): void {
 }
 
 function registerHotkeys(): void {
-  const toggleReady = globalShortcut.register('F6', () => {
-    if (state.phase === 'running' || state.phase === 'countdown') {
-      stopClicker('已通过 F6 停止')
-    } else {
+  globalShortcut.unregisterAll()
+  const startReady = globalShortcut.register(currentSettings.startHotkey, () => {
+    if (state.phase !== 'running' && state.phase !== 'countdown') {
       startClicker(currentSettings)
     }
   })
-  const stopReady = globalShortcut.register('F7', () => stopClicker('已紧急停止'))
+  const stopReady = globalShortcut.register(currentSettings.stopHotkey, () => {
+    if (state.phase === 'running' || state.phase === 'countdown') {
+      stopClicker(`已通过 ${currentSettings.stopHotkey} 停止`)
+    }
+  })
+  const hotkeysReady = startReady && stopReady
   state = {
     ...state,
-    hotkeysReady: toggleReady && stopReady,
-    message: toggleReady && stopReady ? '准备就绪' : '全局快捷键注册失败，可使用界面按钮'
+    hotkeysReady,
+    message:
+      state.phase === 'idle'
+        ? hotkeysReady
+          ? '准备就绪'
+          : '快捷键被其他程序占用，请更换按键'
+        : state.message
   }
+  publishState()
 }
 
 function createWindow(): void {
