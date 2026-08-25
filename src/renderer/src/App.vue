@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import {
   Aim,
   Clock,
+  Download,
   LocationInformation,
   Mouse,
   Refresh,
@@ -16,6 +17,7 @@ import {
   type ClickerSettings,
   type ClickerState
 } from '../../shared/clicker'
+import type { UpdateState } from '../../shared/updater'
 
 const storageKey = 'pulse-click-settings'
 
@@ -40,7 +42,14 @@ const state = ref<ClickerState>({
 })
 const captureCountdown = ref(0)
 let removeStateListener: (() => void) | undefined
+let removeUpdateListener: (() => void) | undefined
 let disposed = false
+const updateState = ref<UpdateState>({
+  phase: 'idle',
+  currentVersion: '1.1.0',
+  progress: 0,
+  message: '可以检查新版本'
+})
 
 const testArmed = ref(false)
 const testClicks = ref(0)
@@ -87,6 +96,19 @@ const receiveRate = computed(() => {
   if (!state.value.clicks) return 0
   return Math.min(100, (testClicks.value / state.value.clicks) * 100)
 })
+const updateButtonText = computed(() => {
+  if (updateState.value.phase === 'checking') return '检查中…'
+  if (updateState.value.phase === 'available') return '下载更新'
+  if (updateState.value.phase === 'downloading') return `${updateState.value.progress}%`
+  if (updateState.value.phase === 'downloaded') return '重启安装'
+  if (updateState.value.phase === 'disabled') return '开发模式'
+  return '检查更新'
+})
+const updateButtonType = computed(() =>
+  updateState.value.phase === 'downloaded' ? 'success' : 'primary'
+)
+const updateBusy = computed(() => ['checking', 'downloading'].includes(updateState.value.phase))
+const updateDisabled = computed(() => updateBusy.value || updateState.value.phase === 'disabled')
 
 watch(settings, (value) => {
   const snapshot = { ...value, position: { ...value.position } }
@@ -172,10 +194,33 @@ function recordTestClick(): void {
   peakCps.value = Math.max(peakCps.value, liveCps.value)
 }
 
+async function handleUpdateAction(): Promise<void> {
+  try {
+    if (updateState.value.phase === 'downloaded') {
+      await window.updater.install()
+      return
+    }
+    if (updateState.value.phase === 'available') {
+      updateState.value = await window.updater.download()
+      return
+    }
+    updateState.value = await window.updater.check()
+    if (updateState.value.phase === 'not-available') ElMessage.success('当前已是最新版本')
+    if (updateState.value.phase === 'available') {
+      ElMessage.success(`发现新版本 v${updateState.value.latestVersion}`)
+    }
+    if (updateState.value.phase === 'error') ElMessage.error(updateState.value.message)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '更新操作失败')
+  }
+}
+
 onMounted(async () => {
   removeStateListener = window.api.onState((nextState) => { state.value = nextState })
+  removeUpdateListener = window.updater.onState((nextState) => { updateState.value = nextState })
   await window.api.updateSettings(settingsSnapshot())
   state.value = await window.api.getState()
+  updateState.value = await window.updater.getState()
   testTimer = setInterval(() => {
     const now = performance.now()
     timerNow.value = now
@@ -187,6 +232,7 @@ onMounted(async () => {
 onUnmounted(() => {
   disposed = true
   removeStateListener?.()
+  removeUpdateListener?.()
   if (testTimer) clearInterval(testTimer)
 })
 </script>
@@ -199,6 +245,22 @@ onUnmounted(() => {
         <div><h1>轻点</h1><p>简单好用的鼠标连点器</p></div>
       </div>
       <div class="top-status">
+        <div class="update-control">
+          <div class="update-copy">
+            <span>v{{ updateState.currentVersion }}</span>
+            <small>{{ updateState.message }}</small>
+          </div>
+          <el-button
+            size="small"
+            :type="updateButtonType"
+            plain
+            :loading="updateBusy"
+            :disabled="updateDisabled"
+            @click="handleUpdateAction"
+          >
+            <el-icon v-if="!updateBusy"><Download /></el-icon>{{ updateButtonText }}
+          </el-button>
+        </div>
         <span class="hotkey-state" :class="{ muted: !state.hotkeysReady }">
           {{ state.hotkeysReady ? 'F6 / F7 快捷键可用' : '全局快捷键不可用' }}
         </span>
@@ -282,6 +344,6 @@ onUnmounted(() => {
       </section>
     </main>
 
-    <footer>轻点 v1.1.0 · 所有操作均在本机完成</footer>
+    <footer>轻点 v{{ updateState.currentVersion }} · 所有操作均在本机完成</footer>
   </div>
 </template>

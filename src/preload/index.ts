@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { ClickerApi, ClickerSettings, ClickerState } from '../shared/clicker'
+import type { UpdaterApi, UpdateState } from '../shared/updater'
 
 // Custom APIs for renderer
 const api: ClickerApi = {
@@ -19,6 +20,20 @@ const api: ClickerApi = {
   }
 }
 
+const updater: UpdaterApi = {
+  check: () => ipcRenderer.invoke('updater:check'),
+  download: () => ipcRenderer.invoke('updater:download'),
+  install: () => ipcRenderer.invoke('updater:install'),
+  getState: () => ipcRenderer.invoke('updater:get-state'),
+  onState: (callback: (state: UpdateState) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, nextState: UpdateState): void => {
+      callback(nextState)
+    }
+    ipcRenderer.on('updater:state', listener)
+    return () => ipcRenderer.removeListener('updater:state', listener)
+  }
+}
+
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise
 // just add to the DOM global.
@@ -26,6 +41,7 @@ if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('api', api)
+    contextBridge.exposeInMainWorld('updater', updater)
   } catch (error) {
     console.error(error)
   }
@@ -34,4 +50,6 @@ if (process.contextIsolated) {
   window.electron = electronAPI
   // @ts-ignore (define in dts)
   window.api = api
+  // @ts-ignore (define in dts)
+  window.updater = updater
 }

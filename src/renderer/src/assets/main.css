@@ -8,6 +8,11 @@
 .brand h1 { margin: 0; font-size: 20px; font-weight: 720; letter-spacing: .5px; }
 .brand p { margin: 2px 0 0; color: var(--muted); font-size: 11px; }
 .top-status { display: flex; align-items: center; gap: 12px; }
+.update-control { display: flex; align-items: center; gap: 9px; padding-right: 12px; border-right: 1px solid var(--border); }
+.update-copy { display: grid; min-width: 112px; justify-items: end; }
+.update-copy span { color: #4d596d; font-size: 10px; font-weight: 650; }
+.update-copy small { max-width: 150px; overflow: hidden; color: var(--muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.update-control .el-button { min-width: 78px; }
 .hotkey-state { color: #4d596d; font-size: 11px; }
 .hotkey-state::before { display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: #39b980; content: ''; }
 .hotkey-state.muted::before { background: #b9bec8; }

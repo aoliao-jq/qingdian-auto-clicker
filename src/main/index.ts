@@ -2,6 +2,7 @@ import { app, shell, BrowserWindow, ipcMain, globalShortcut } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { Button, mouse, Point } from '@nut-tree-fork/nut-js'
+import { autoUpdater } from 'electron-updater'
 import icon from '../../resources/icon.png?asset'
 import {
   defaultClickerSettings,
@@ -9,6 +10,7 @@ import {
   type ClickerSettings,
   type ClickerState
 } from '../shared/clicker'
+import type { UpdateState } from '../shared/updater'
 
 app.disableHardwareAcceleration()
 app.commandLine.appendSwitch('disable-gpu')
@@ -31,6 +33,12 @@ let countdownTimer: ReturnType<typeof setInterval> | undefined
 let runToken = 0
 let lastStateSentAt = 0
 let hiddenForCurrentRun = false
+let updateState: UpdateState = {
+  phase: app.isPackaged ? 'idle' : 'disabled',
+  currentVersion: app.getVersion(),
+  progress: 0,
+  message: app.isPackaged ? '可以检查新版本' : '开发模式下不检查更新'
+}
 
 mouse.config.autoDelayMs = 0
 
@@ -74,6 +82,91 @@ function publishState(force = true): ClickerState {
     }
   }
   return { ...state }
+}
+
+function publishUpdateState(nextState?: Partial<UpdateState>): UpdateState {
+  updateState = { ...updateState, ...nextState }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('updater:state', { ...updateState })
+  }
+  return { ...updateState }
+}
+
+function updateErrorMessage(error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error)
+  if (/404|not found/i.test(detail)) return '暂未找到可用的发布版本'
+  if (/net|network|internet|connect|timeout/i.test(detail)) return '网络连接失败，请稍后重试'
+  return '更新检查失败，请稍后重试'
+}
+
+function registerUpdater(): void {
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = true
+
+  autoUpdater.on('checking-for-update', () => {
+    publishUpdateState({ phase: 'checking', progress: 0, message: '正在检查新版本…' })
+  })
+  autoUpdater.on('update-available', (info) => {
+    publishUpdateState({
+      phase: 'available',
+      latestVersion: info.version,
+      progress: 0,
+      message: `发现新版本 v${info.version}`
+    })
+  })
+  autoUpdater.on('update-not-available', (info) => {
+    publishUpdateState({
+      phase: 'not-available',
+      latestVersion: info.version,
+      progress: 0,
+      message: '当前已是最新版本'
+    })
+  })
+  autoUpdater.on('download-progress', (progress) => {
+    const percent = Math.min(100, Math.max(0, Math.round(progress.percent)))
+    publishUpdateState({
+      phase: 'downloading',
+      progress: percent,
+      message: `正在下载更新 ${percent}%`
+    })
+  })
+  autoUpdater.on('update-downloaded', (info) => {
+    publishUpdateState({
+      phase: 'downloaded',
+      latestVersion: info.version,
+      progress: 100,
+      message: '更新已下载，重启后即可完成安装'
+    })
+  })
+  autoUpdater.on('error', (error) => {
+    publishUpdateState({ phase: 'error', progress: 0, message: updateErrorMessage(error) })
+  })
+
+  ipcMain.handle('updater:get-state', () => ({ ...updateState }))
+  ipcMain.handle('updater:check', async () => {
+    if (!app.isPackaged) return publishUpdateState()
+    try {
+      await autoUpdater.checkForUpdates()
+    } catch (error) {
+      publishUpdateState({ phase: 'error', progress: 0, message: updateErrorMessage(error) })
+    }
+    return { ...updateState }
+  })
+  ipcMain.handle('updater:download', async () => {
+    if (!app.isPackaged || updateState.phase !== 'available') return { ...updateState }
+    publishUpdateState({ phase: 'downloading', progress: 0, message: '正在准备下载更新…' })
+    try {
+      await autoUpdater.downloadUpdate()
+    } catch (error) {
+      publishUpdateState({ phase: 'error', progress: 0, message: updateErrorMessage(error) })
+    }
+    return { ...updateState }
+  })
+  ipcMain.handle('updater:install', () => {
+    if (app.isPackaged && updateState.phase === 'downloaded') {
+      autoUpdater.quitAndInstall(false, true)
+    }
+  })
 }
 
 function hideWindowForRun(): void {
@@ -281,7 +374,10 @@ function createWindow(): void {
     void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  mainWindow.webContents.once('did-finish-load', () => publishState())
+  mainWindow.webContents.once('did-finish-load', () => {
+    publishState()
+    publishUpdateState()
+  })
   mainWindow.on('closed', () => {
     mainWindow = null
   })
@@ -292,7 +388,7 @@ function createWindow(): void {
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   // Set app user model id for windows
-  electronApp.setAppUserModelId('com.electron')
+  electronApp.setAppUserModelId('com.shubiaoliandianqi.autoclicker')
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
@@ -302,8 +398,17 @@ app.whenReady().then(() => {
   })
 
   registerClickerIpc()
+  registerUpdater()
   registerHotkeys()
   createWindow()
+
+  if (app.isPackaged) {
+    setTimeout(() => {
+      void autoUpdater.checkForUpdates().catch((error) => {
+        publishUpdateState({ phase: 'error', progress: 0, message: updateErrorMessage(error) })
+      })
+    }, 5000)
+  }
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the

@@ -1,4 +1,4 @@
-appId: com.ShuBiaoLianDianQi.autoclicker
+appId: com.shubiaoliandianqi.autoclicker
 productName: 鼠标连点器
 directories:
   buildResources: build
@@ -44,8 +44,9 @@ linux:
 appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
-# publish:
-#   provider: generic
-#   url: https://example.com/auto-updates
+publish:
+  provider: github
+  owner: aoliao-jq
+  repo: qingdian-auto-clicker
 electronDownload:
   mirror: https://npmmirror.com/mirrors/electron/
