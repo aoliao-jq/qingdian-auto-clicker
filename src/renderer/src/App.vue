@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Aim,
   Clock,
   Download,
   LocationInformation,
   Mouse,
-  Refresh,
   Setting,
   VideoPause,
   VideoPlay
@@ -46,23 +45,14 @@ const captureCountdown = ref(0)
 let removeStateListener: (() => void) | undefined
 let removeUpdateListener: (() => void) | undefined
 let disposed = false
+let promptedVersion = ''
+let installPromptShown = false
 const updateState = ref<UpdateState>({
   phase: 'idle',
-  currentVersion: '1.1.0',
+  currentVersion: '1.1.2',
   progress: 0,
   message: '可以检查新版本'
 })
-
-const testArmed = ref(false)
-const testClicks = ref(0)
-const testStartedAt = ref(0)
-const testLastClickAt = ref(0)
-const testEndedAt = ref(0)
-const liveCps = ref(0)
-const peakCps = ref(0)
-const timerNow = ref(performance.now())
-const recentClickTimes: number[] = []
-let testTimer: ReturnType<typeof setInterval> | undefined
 
 function settingsSnapshot(): ClickerSettings {
   return { ...settings, position: { ...settings.position } }
@@ -85,19 +75,6 @@ const theoreticalCps = computed(() => {
   const multiplier = settings.clickType === 'double' ? 2 : 1
   return ((1000 / Math.max(1, settings.intervalMs)) * multiplier).toFixed(1)
 })
-const testDuration = computed(() => {
-  if (!testStartedAt.value) return 0
-  const end = testEndedAt.value || testLastClickAt.value || timerNow.value
-  return Math.max(0, (end - testStartedAt.value) / 1000)
-})
-const averageCps = computed(() => {
-  if (testClicks.value < 2 || testLastClickAt.value <= testStartedAt.value) return 0
-  return (testClicks.value - 1) / ((testLastClickAt.value - testStartedAt.value) / 1000)
-})
-const receiveRate = computed(() => {
-  if (!state.value.clicks) return 0
-  return Math.min(100, (testClicks.value / state.value.clicks) * 100)
-})
 const updateButtonText = computed(() => {
   if (updateState.value.phase === 'checking') return '检查中…'
   if (updateState.value.phase === 'available') return '下载更新'
@@ -117,12 +94,6 @@ watch(settings, (value) => {
   localStorage.setItem(storageKey, JSON.stringify(snapshot))
   void window.api.updateSettings(snapshot)
 }, { deep: true })
-
-watch(() => state.value.phase, (phase, previous) => {
-  if (testArmed.value && ['running', 'countdown'].includes(previous) && ['idle', 'error'].includes(phase)) {
-    finishTest()
-  }
-})
 
 async function toggleClicker(): Promise<void> {
   try {
@@ -155,45 +126,50 @@ function applyInterval(value: number): void {
   settings.intervalMs = value
 }
 
-function resetTest(): void {
-  testArmed.value = false
-  testClicks.value = 0
-  testStartedAt.value = 0
-  testLastClickAt.value = 0
-  testEndedAt.value = 0
-  liveCps.value = 0
-  peakCps.value = 0
-  recentClickTimes.length = 0
-}
+async function handleIncomingUpdate(nextState: UpdateState): Promise<void> {
+  updateState.value = nextState
 
-function prepareTest(): void {
-  resetTest()
-  testArmed.value = true
-  settings.positionMode = 'current'
-  if (settings.hideWindowOnStart) {
-    settings.hideWindowOnStart = false
-    ElMessage.info('测速时已自动关闭“启动后隐藏窗口”')
-  } else {
-    ElMessage.success('测速已准备：按 F6 后把鼠标移入测试区域')
+  if (
+    nextState.phase === 'available' &&
+    nextState.latestVersion &&
+    promptedVersion !== nextState.latestVersion
+  ) {
+    promptedVersion = nextState.latestVersion
+    try {
+      await ElMessageBox.confirm(
+        `当前版本为 v${nextState.currentVersion}，检测到新版本 v${nextState.latestVersion}。是否立即下载更新？`,
+        '发现新版本',
+        {
+          confirmButtonText: '立即下载',
+          cancelButtonText: '稍后再说',
+          type: 'success',
+          closeOnClickModal: false
+        }
+      )
+      updateState.value = await window.updater.download()
+    } catch {
+      // 用户选择稍后更新时，顶部仍保留“下载更新”按钮。
+    }
   }
-}
 
-function finishTest(): void {
-  testArmed.value = false
-  testEndedAt.value = testLastClickAt.value || performance.now()
-  liveCps.value = 0
-}
-
-function recordTestClick(): void {
-  if (!testArmed.value) return
-  const now = performance.now()
-  if (!testStartedAt.value) testStartedAt.value = now
-  testLastClickAt.value = now
-  testClicks.value += 1
-  recentClickTimes.push(now)
-  while (recentClickTimes.length && recentClickTimes[0] < now - 1000) recentClickTimes.shift()
-  liveCps.value = recentClickTimes.length
-  peakCps.value = Math.max(peakCps.value, liveCps.value)
+  if (nextState.phase === 'downloaded' && !installPromptShown) {
+    installPromptShown = true
+    try {
+      await ElMessageBox.confirm(
+        `新版本 v${nextState.latestVersion} 已下载完成，是否立即重启并安装？`,
+        '更新已准备好',
+        {
+          confirmButtonText: '立即重启安装',
+          cancelButtonText: '稍后安装',
+          type: 'success',
+          closeOnClickModal: false
+        }
+      )
+      await window.updater.install()
+    } catch {
+      // 用户稍后可以通过顶部的“重启安装”按钮继续。
+    }
+  }
 }
 
 async function handleUpdateAction(): Promise<void> {
@@ -219,23 +195,21 @@ async function handleUpdateAction(): Promise<void> {
 
 onMounted(async () => {
   removeStateListener = window.api.onState((nextState) => { state.value = nextState })
-  removeUpdateListener = window.updater.onState((nextState) => { updateState.value = nextState })
+  removeUpdateListener = window.updater.onState((nextState) => {
+    void handleIncomingUpdate(nextState)
+  })
   await window.api.updateSettings(settingsSnapshot())
   state.value = await window.api.getState()
   updateState.value = await window.updater.getState()
-  testTimer = setInterval(() => {
-    const now = performance.now()
-    timerNow.value = now
-    while (recentClickTimes.length && recentClickTimes[0] < now - 1000) recentClickTimes.shift()
-    liveCps.value = testArmed.value ? recentClickTimes.length : 0
-  }, 100)
+  if (updateState.value.phase !== 'disabled') {
+    void window.updater.check().then((nextState) => handleIncomingUpdate(nextState))
+  }
 })
 
 onUnmounted(() => {
   disposed = true
   removeStateListener?.()
   removeUpdateListener?.()
-  if (testTimer) clearInterval(testTimer)
 })
 </script>
 
@@ -333,26 +307,6 @@ onUnmounted(() => {
         </aside>
       </section>
 
-      <section class="card speed-test-card">
-        <div class="test-header">
-          <div class="card-title"><span class="title-icon amber"><Clock /></span><div><h2>点击测速板</h2><p>测试目标区域实际接收到的点击速度，不受网络影响</p></div></div>
-          <div class="test-actions"><el-button @click="resetTest"><el-icon><Refresh /></el-icon>清空</el-button><el-button type="primary" @click="prepareTest">{{ testArmed ? '重新准备' : '准备测速' }}</el-button></div>
-        </div>
-        <div class="test-layout">
-          <div class="test-target" :class="{ armed: testArmed }" @mousedown.prevent="recordTestClick">
-            <div class="target-ring"><Mouse /></div>
-            <strong>{{ testArmed ? `将鼠标停在这里，按 ${settings.startHotkey} 开始` : '点击“准备测速”开始' }}</strong>
-            <span>{{ testArmed ? '正在记录测试区域收到的每一次点击' : '建议使用当前位置、指定次数进行测试' }}</span>
-          </div>
-          <div class="test-metrics">
-            <div><span>实收点击</span><strong>{{ testClicks.toLocaleString() }}</strong><small>次</small></div>
-            <div><span>平均速度</span><strong>{{ averageCps.toFixed(1) }}</strong><small>次/秒</small></div>
-            <div><span>实时 / 峰值</span><strong>{{ liveCps }} / {{ peakCps }}</strong><small>CPS</small></div>
-            <div><span>测试时间</span><strong>{{ testDuration.toFixed(2) }}</strong><small>秒</small></div>
-            <div><span>接收成功率</span><strong>{{ receiveRate.toFixed(1) }}%</strong><small>实收 / 发出</small></div>
-          </div>
-        </div>
-      </section>
     </main>
 
     <footer>轻点 v{{ updateState.currentVersion }} · 所有操作均在本机完成</footer>

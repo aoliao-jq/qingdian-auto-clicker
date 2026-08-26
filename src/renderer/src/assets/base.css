@@ -6,6 +6,7 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   --primary: #4f6ef7;
+  --primary-dark: #3d59d8;
   --primary-soft: #eef1ff;
   --border: #e7eaf0;
   --muted: #7b8497;

@@ -376,9 +376,9 @@ function createWindow(): void {
   // Create the browser window.
   mainWindow = new BrowserWindow({
     width: 1180,
-    height: 820,
+    height: 700,
     minWidth: 1000,
-    minHeight: 720,
+    minHeight: 640,
     show: true,
     autoHideMenuBar: true,
     backgroundColor: '#f4f6fa',
@@ -430,14 +430,6 @@ app.whenReady().then(() => {
   registerUpdater()
   registerHotkeys()
   createWindow()
-
-  if (app.isPackaged) {
-    setTimeout(() => {
-      void autoUpdater.checkForUpdates().catch((error) => {
-        publishUpdateState({ phase: 'error', progress: 0, message: updateErrorMessage(error) })
-      })
-    }, 5000)
-  }
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the
